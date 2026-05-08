@@ -1,0 +1,1 @@
+- `c5ba32eb-e1a8-4e55-b45a-34e3db3f1458` — 2026-05-08 — Testing Context7 MCP integration with Spotify API docs
