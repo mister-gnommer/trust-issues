@@ -65,6 +65,7 @@ Every time a new track is detected (regardless of shuffle state):
 | `playlist_id` | `context.uri` (split) | Null if no playlist context |
 | `playlist_snapshot_id` | from syncer cache | Which version of the playlist was active |
 | `shuffle_state` | `shuffle_state` | From `/me/player` |
+| `smart_shuffle` | `smart_shuffle` | From `/me/player` — Spotify's AI shuffle variant |
 | `played_at` | server timestamp | When the poller first detected this track |
 | `ended_at` | server timestamp | When the next track was detected — set retroactively |
 | `progress_ms_at_detection` | `progress_ms` | How far in when we first caught it |
@@ -167,6 +168,7 @@ CREATE TABLE plays (
     playlist_id              TEXT,            -- NULL if context was null
     playlist_snapshot_id     TEXT,            -- NULL if context was null
     shuffle_state            BOOLEAN NOT NULL,
+    smart_shuffle            BOOLEAN NOT NULL,
     played_at                DATETIME NOT NULL,
     ended_at                 DATETIME,        -- set when next track detected
     progress_ms_at_detection INTEGER NOT NULL,
@@ -184,7 +186,7 @@ CREATE TABLE plays (
 | A2 | Null-context plays | Record with `playlist_id = null`, excluded from analysis |
 | A3 | Non-shuffle plays | Record all, `shuffle_state` stored, analysis filters as needed |
 | A4 | Which playlists to sync | All playlists (~100 playlists / ~2000 songs — trivial for SQLite) |
-| A5 | Liked Songs handling | Needs testing — see procedure below |
+| A5 | Liked Songs handling | `type: "collection"`, synced via `GET /me/tracks`, one extra branch in context parser |
 | A6 | Results interface | Daily markdown report written to `reports/YYYYMMDD.md`, old ones kept |
 | A7 | OAuth on VPS | Manual token: OAuth flow on laptop, paste refresh token into config |
 | A8 | Database | SQLite |
@@ -228,34 +230,47 @@ The `users` table in SQLite is populated automatically on first poll — no manu
 Spotify may return a special context URI like `spotify:user:<id>:collection` when playing from Liked Songs. We need to confirm this before writing the handler.
 
 **Steps:**
-1. Go to [developer.spotify.com/console/get-users-currently-playing](https://developer.spotify.com/console/get-users-currently-playing/) — this lets you get a temporary token without any setup.
-2. Click **Get Token**, check the `user-read-playback-state` scope, click **Request Token**.
-3. Start playing something from **Liked Songs** (heart icon library) in shuffle mode on your phone or desktop.
-4. Run this curl (replace `<token>`):
+1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard), open your app, and use the built-in **access token generator** (under Settings or the app overview — look for "Get token" or similar). Check the `user-read-playback-state` scope.
+2. Start playing something from **Liked Songs** (heart icon library) in shuffle mode on your phone or desktop.
+3. Run this curl (replace `<token>`):
 
 ```bash
 curl -s -H "Authorization: Bearer <token>" \
   https://api.spotify.com/v1/me/player | python3 -m json.tool | grep -A5 '"context"'
 ```
 
-5. Report back what `context.type` and `context.uri` look like.
+4. Report back what `context.type` and `context.uri` look like.
 
-**Expected outcomes:**
-- `"uri": "spotify:user:<your_id>:collection"` — Liked Songs has its own context, we handle it as a special case synced via `GET /me/tracks`
-- `context: null` — Liked Songs plays without context, recorded as `playlist_id = null`
+**Result:** Liked Songs returns `type: "collection"` and `uri: "spotify:user:<user_id>:collection"`. The `href` points to `GET /me/tracks` which is the endpoint to sync it.
 
-Either way it's just one extra branch in the context parser.
+Context parser handles it as a special case alongside `"playlist"` — one extra branch, synced via `GET /me/tracks` instead of `GET /playlists/{id}/items`.
 
 ---
 
-## A7 — OAuth refresh token TTL
+## A7 — OAuth setup & refresh token TTL
 
-Spotify refresh tokens **do not have a fixed TTL** — confirmed in Spotify's documentation. They remain valid indefinitely unless:
-- The user manually revokes the app's access (via spotify.com/account/apps)
+**Security requirements (updated Feb 2025):** Spotify deprecated the Implicit Grant flow and requires HTTPS redirect URIs — with one explicit exception: `http://127.0.0.1` (loopback) is still allowed. This is exactly what we use.
+
+**Flow for adding an account:**
+
+Since we have a `client_secret`, we use the standard **Authorization Code flow** (not PKCE — that's for public clients without a secret).
+
+1. Register `http://127.0.0.1:8888/callback` as a redirect URI in your Spotify app's dashboard settings
+2. Run [`spotify-auth`](https://github.com/mister-gnommer/spotify-auth) **on your laptop** (not the VPS — needs a browser):
+   - Starts a temporary HTTP server on `127.0.0.1:8888`
+   - Opens the Spotify authorization URL in your browser
+   - Catches the callback, exchanges the code for tokens
+   - Prints the refresh token
+3. Paste the refresh token into the `[[accounts]]` block in the TOML config
+
+`spotify-auth` lives in its own repo — it's a generic Spotify OAuth helper with no trust-issues-specific logic, reusable for any Spotify project.
+
+**Refresh token TTL:** Spotify refresh tokens have no fixed expiry. They remain valid indefinitely unless:
+- The user manually revokes access (via spotify.com/account/apps)
 - The user changes their Spotify password
 - The app's client secret is rotated
 
-In practice: paste the refresh token into the config once, the app handles re-fetching access tokens automatically (access tokens expire after 1 hour, refresh tokens do not).
+Access tokens expire after 1 hour — the app handles renewal automatically.
 
 ---
 
