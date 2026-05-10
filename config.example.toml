@@ -1,0 +1,27 @@
+# trust-issues — example configuration
+#
+# Copy this file to `config.toml` and fill in real values.
+# `config.toml` is gitignored because it contains refresh tokens.
+
+[app]
+client_id     = "your_spotify_client_id"
+client_secret = "your_spotify_client_secret"
+
+# Path to the SQLite database file. Created automatically on first run.
+[storage]
+database_path = "./trust.db"
+
+# One [[accounts]] entry per Spotify account.
+# Obtain a refresh token via https://github.com/mister-gnommer/spotify-auth
+# Required scopes: user-read-playback-state, user-read-currently-playing,
+#                  playlist-read-private, playlist-read-collaborative,
+#                  user-library-read
+[[accounts]]
+user_id       = "spotify_user_id"
+display_name  = "Kris"
+refresh_token = "AQD..."
+
+# [[accounts]]
+# user_id       = "spotify_user_id_2"
+# display_name  = "Friend"
+# refresh_token = "AQD..."

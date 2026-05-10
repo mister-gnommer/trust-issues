@@ -1,0 +1,17 @@
+# Build output
+/trust-issues
+/dist/
+
+# Local config (contains refresh tokens)
+config.toml
+
+# Local databases
+*.db
+*.db-wal
+*.db-shm
+
+# Editor swap files
+.*.swp
+
+# OS junk
+.DS_Store
