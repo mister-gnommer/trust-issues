@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package main
 
 import (
@@ -79,11 +78,10 @@ func run() error {
 	// connection or DB lock can't keep the process alive forever.
 	go func() {
 		<-ctx.Done()
-		t := time.AfterFunc(shutdownDeadline, func() {
+		time.AfterFunc(shutdownDeadline, func() {
 			logger.Error("shutdown deadline exceeded; forcing exit")
 			os.Exit(2)
 		})
-		_ = t // referenced for future cancellation if needed
 	}()
 
 	err = eg.Wait()
