@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package config
 
 import "os"
