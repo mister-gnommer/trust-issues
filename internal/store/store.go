@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package store
 
 import (
@@ -26,7 +25,7 @@ type Store struct {
 func New(ctx context.Context, dsn string) (*Store, error) {
 	connStr := dsn
 	if dsn != ":memory:" {
-		connStr = dsn + "?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on"
+		connStr += "?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on"
 	}
 	db, err := sql.Open("sqlite3", connStr)
 	if err != nil {
@@ -101,7 +100,7 @@ func (s *Store) UpsertArtists(ctx context.Context, artists []Artist) error {
 }
 
 // UpsertTracks writes track rows AND their artist links (track_artists) in one tx.
-// Caller is responsible for ensuring referenced artists already exist.
+// Artist rows must exist before calling — enforced by foreign key constraint.
 func (s *Store) UpsertTracks(ctx context.Context, tracks []Track) error {
 	if len(tracks) == 0 {
 		return nil

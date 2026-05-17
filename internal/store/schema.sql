@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS tracks (
 CREATE TABLE IF NOT EXISTS track_artists (
     track_id  TEXT NOT NULL,
     artist_id TEXT NOT NULL,
-    PRIMARY KEY (track_id, artist_id)
+    PRIMARY KEY (track_id, artist_id),
+    FOREIGN KEY (track_id) REFERENCES tracks(id),
+    FOREIGN KEY (artist_id) REFERENCES artists(id)
 );
 
 CREATE TABLE IF NOT EXISTS playlist_snapshots (
@@ -43,7 +45,9 @@ CREATE TABLE IF NOT EXISTS playlist_snapshot_tracks (
     snapshot_id TEXT NOT NULL,
     track_id    TEXT NOT NULL,
     position    INTEGER,
-    PRIMARY KEY (snapshot_id, track_id)
+    PRIMARY KEY (snapshot_id, track_id),
+    FOREIGN KEY (snapshot_id) REFERENCES playlist_snapshots(id),
+    FOREIGN KEY (track_id) REFERENCES tracks(id)
 );
 
 CREATE TABLE IF NOT EXISTS plays (
@@ -57,7 +61,10 @@ CREATE TABLE IF NOT EXISTS plays (
     played_at                DATETIME NOT NULL,
     ended_at                 DATETIME,
     progress_ms_at_detection INTEGER NOT NULL,
-    skipped                  BOOLEAN
+    skipped                  BOOLEAN,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (track_id) REFERENCES tracks(id),
+    FOREIGN KEY (playlist_snapshot_id) REFERENCES playlist_snapshots(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_plays_user_open
