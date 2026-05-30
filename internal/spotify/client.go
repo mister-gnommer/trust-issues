@@ -51,6 +51,7 @@ func NewClient(ctx context.Context, clientID, clientSecret, refreshToken string)
 
 // GetPlayerState calls GET /me/player. Returns (nil, nil) when nothing is playing
 // (HTTP 204). Honors Retry-After on 429 with a single retry.
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback
 func (c *Client) GetPlayerState(ctx context.Context) (*PlayerState, error) {
 	body, status, err := c.do(ctx, http.MethodGet, "/me/player", nil)
 	if err != nil {
@@ -70,6 +71,7 @@ func (c *Client) GetPlayerState(ctx context.Context) (*PlayerState, error) {
 }
 
 // ListPlaylists fetches all playlists for the current user, paginating /me/playlists.
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-a-list-of-current-users-playlists
 func (c *Client) ListPlaylists(ctx context.Context) ([]Playlist, error) {
 	var out []Playlist
 	next := "/me/playlists?limit=50"
@@ -93,6 +95,7 @@ func (c *Client) ListPlaylists(ctx context.Context) ([]Playlist, error) {
 
 // ListPlaylistItems fetches all tracks for a playlist. Items where Track is nil
 // or IsLocal is true are skipped (they have no usable Spotify ID).
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks
 func (c *Client) ListPlaylistItems(ctx context.Context, playlistID string) ([]Track, error) {
 	var out []Track
 	fields := "next,items(is_local,track(id,name,uri,duration_ms,is_local,artists(id,name),album(id,name)))"
@@ -122,6 +125,7 @@ func (c *Client) ListPlaylistItems(ctx context.Context, playlistID string) ([]Tr
 }
 
 // ListLikedTracks fetches the user's Liked Songs (Saved Tracks) collection.
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks
 func (c *Client) ListLikedTracks(ctx context.Context) ([]Track, error) {
 	var out []Track
 	next := "/me/tracks?limit=50"

@@ -1,7 +1,7 @@
-// 🤖 AI-generated
 package spotify
 
 // PlayerState is the response of GET /v1/me/player.
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback
 // 204 (no active device) is converted to (nil, nil) by the client.
 type PlayerState struct {
 	IsPlaying    bool     `json:"is_playing"`
@@ -38,7 +38,8 @@ type SimpleAlbum struct {
 	Name string `json:"name"`
 }
 
-// Playlist is a simplified playlist entry from /v1/me/playlists.
+// Playlist is a simplified playlist entry from GET /me/playlists.
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-a-list-of-current-users-playlists
 type Playlist struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
@@ -49,14 +50,16 @@ type Playlist struct {
 	} `json:"tracks"`
 }
 
-// PlaylistItem is one item from /v1/playlists/{id}/items. Track may be nil
+// PlaylistItem is one item from GET /playlists/{id}/items. Track may be nil
 // when a track has been removed from Spotify.
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks
 type PlaylistItem struct {
 	IsLocal bool   `json:"is_local"`
 	Track   *Track `json:"track"`
 }
 
 // Track is the full track object embedded in playlist items and /me/tracks responses.
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks
 type Track struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -67,7 +70,8 @@ type Track struct {
 	Album      *SimpleAlbum   `json:"album"`
 }
 
-// SavedTrack is one item from /v1/me/tracks (Liked Songs).
+// SavedTrack is one item from GET /me/tracks (Liked Songs).
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks
 type SavedTrack struct {
 	AddedAt string `json:"added_at"`
 	Track   *Track `json:"track"`
