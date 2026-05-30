@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package store
 
 import "time"
