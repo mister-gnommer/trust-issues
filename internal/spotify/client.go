@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package spotify
 
 import (
@@ -53,14 +52,11 @@ func NewClient(ctx context.Context, clientID, clientSecret, refreshToken string)
 // (HTTP 204). Honors Retry-After on 429 with a single retry.
 // Docs: https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback
 func (c *Client) GetPlayerState(ctx context.Context) (*PlayerState, error) {
-	body, status, err := c.do(ctx, http.MethodGet, "/me/player", nil)
+	body, status, err := c.get(ctx, "/me/player")
 	if err != nil {
 		return nil, err
 	}
-	if status == http.StatusNoContent {
-		return nil, nil
-	}
-	if len(body) == 0 {
+	if status == http.StatusNoContent || len(body) == 0 {
 		return nil, nil
 	}
 	var ps PlayerState
@@ -76,7 +72,7 @@ func (c *Client) ListPlaylists(ctx context.Context) ([]Playlist, error) {
 	var out []Playlist
 	next := "/me/playlists?limit=50"
 	for next != "" {
-		body, _, err := c.do(ctx, http.MethodGet, next, nil)
+		body, _, err := c.get(ctx, next)
 		if err != nil {
 			return nil, err
 		}
@@ -102,7 +98,7 @@ func (c *Client) ListPlaylistItems(ctx context.Context, playlistID string) ([]Tr
 	next := fmt.Sprintf("/playlists/%s/items?limit=50&fields=%s",
 		url.PathEscape(playlistID), url.QueryEscape(fields))
 	for next != "" {
-		body, _, err := c.do(ctx, http.MethodGet, next, nil)
+		body, _, err := c.get(ctx, next)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +126,7 @@ func (c *Client) ListLikedTracks(ctx context.Context) ([]Track, error) {
 	var out []Track
 	next := "/me/tracks?limit=50"
 	for next != "" {
-		body, _, err := c.do(ctx, http.MethodGet, next, nil)
+		body, _, err := c.get(ctx, next)
 		if err != nil {
 			return nil, err
 		}
@@ -152,14 +148,9 @@ func (c *Client) ListLikedTracks(ctx context.Context) ([]Track, error) {
 	return out, nil
 }
 
-// do performs a request against pathOrURL (relative path starting with "/"
+// get performs a GET request against pathOrURL (relative path starting with "/"
 // or absolute URL). On 429 it sleeps Retry-After (capped at 60s) and retries once.
-//
-// NOTE: `body` is only safe to retry when it's nil (or stateless). All current
-// call sites pass nil because Spotify's read endpoints are GET-only. If a future
-// caller passes a non-nil body for POST/PUT, retries will silently send an empty
-// body — switch to a `func() io.Reader` factory at that point.
-func (c *Client) do(ctx context.Context, method, pathOrURL string, body io.Reader) ([]byte, int, error) {
+func (c *Client) get(ctx context.Context, pathOrURL string) ([]byte, int, error) {
 	requestURL := pathOrURL
 	if strings.HasPrefix(pathOrURL, "/") {
 		requestURL = c.baseURL + pathOrURL
@@ -167,7 +158,7 @@ func (c *Client) do(ctx context.Context, method, pathOrURL string, body io.Reade
 
 	const maxAttempts = 2
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, method, requestURL, body)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -179,7 +170,7 @@ func (c *Client) do(ctx context.Context, method, pathOrURL string, body io.Reade
 			return nil, 0, err
 		}
 		respBody, readErr := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
+		resp.Body.Close()
 		if readErr != nil {
 			return nil, resp.StatusCode, readErr
 		}
@@ -197,7 +188,7 @@ func (c *Client) do(ctx context.Context, method, pathOrURL string, body io.Reade
 		if resp.StatusCode >= 400 {
 			// Body intentionally omitted from the error: it can contain
 			// account- or query-specific data that doesn't belong in logs.
-			return respBody, resp.StatusCode, fmt.Errorf("spotify %s %s: %d", method, pathOrURL, resp.StatusCode)
+			return respBody, resp.StatusCode, fmt.Errorf("spotify GET %s: %d", pathOrURL, resp.StatusCode)
 		}
 		return respBody, resp.StatusCode, nil
 	}
@@ -210,6 +201,8 @@ func parseRetryAfter(h string) time.Duration {
 	if h == "" {
 		return fallback
 	}
+	// Spotify returns integer seconds, so Atoi is sufficient.
+	// If it ever switches to HTTP-date format, this falls back to 5s.
 	secs, err := strconv.Atoi(strings.TrimSpace(h))
 	if err != nil || secs < 0 {
 		return fallback
@@ -227,10 +220,8 @@ func relativeFromNext(next string) string {
 	if next == "" {
 		return ""
 	}
-	if strings.HasPrefix(next, apiBase) {
-		return strings.TrimPrefix(next, apiBase)
-	}
-	return next // pass through; do() will use it as absolute
+	path, _ := strings.CutPrefix(next, apiBase)
+	return path
 }
 
 // ContextKind classifies a Spotify context URI as parsed by ParseContextURI.
@@ -245,10 +236,11 @@ const (
 	ContextShow
 )
 
-// ParseContextURI splits a context URI like "spotify:playlist:<id>" or
+// ParseContextURI splits a Spotify context URI like "spotify:playlist:<id>" or
 // "spotify:user:<userID>:collection" into kind + id. id is the playlist ID for
 // playlists, the user ID for collection (Liked Songs), or the entity ID for
 // album/artist/show. Empty input returns (ContextUnknown, "").
+// Docs: https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback#context-object
 func ParseContextURI(uri string) (ContextKind, string) {
 	if uri == "" {
 		return ContextUnknown, ""
