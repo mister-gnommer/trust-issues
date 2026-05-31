@@ -54,6 +54,20 @@ This project is AI-generated and used as a learning exercise for a TypeScript de
 └────────────────────────────────────────────────────────────┘
 ```
 
+## Why snapshots?
+
+Spotify assigns a `snapshot_id` to each playlist version — like a Git commit hash. Every time you add or remove tracks, the ID changes. This project stores the full track list per snapshot so the analysis can answer: "What tracks were available when this play happened?"
+
+**Without snapshots:**
+> "Metallica was played 8 times out of 250 tracks" — but the first play happened when there were only 200 tracks!
+
+**With snapshots:**
+> "Play #1: snapshot A (200 tracks), Metallica had 4% of playlist → expected 4%"
+> "Play #2: snapshot B (250 tracks), Metallica had 3.2% of playlist → expected 3.2%"
+
+Spotify thought of us. :)
+Docs: https://developer.spotify.com/documentation/web-api/reference/get-playlist
+
 ## Tech stack
 
 | Component | Choice |

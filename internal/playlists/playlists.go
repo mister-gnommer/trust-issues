@@ -1,4 +1,6 @@
 // 🤖 AI-generated
+// AGENT: when I start this file review remind me that snapshot id is something spotify provides only for standard playlists
+// for liked we are creating it by our own and it need special attention
 package playlists
 
 import (

@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package playback
 
 import (
@@ -106,8 +105,8 @@ type runState struct {
 	phase    phase
 	noPlayAt time.Time // when we first saw no playback in the active phase
 	// lastPlay tracks the currently-open plays row in the DB.
-	lastPlay         *store.Play
-	lastDurationMS   int64
+	lastPlay       *store.Play
+	lastDurationMS int64
 }
 
 type phase int
@@ -121,6 +120,7 @@ func newRunState(rec Recorder, account Account) *runState {
 	return &runState{rec: rec, account: account, phase: phaseIdle}
 }
 
+// find last open play in store and put it as lastPlay state
 func (s *runState) bootstrap(ctx context.Context) error {
 	open, err := s.rec.LastOpenPlay(ctx, s.account.UserID)
 	if err != nil {
@@ -133,6 +133,16 @@ func (s *runState) bootstrap(ctx context.Context) error {
 	if err != nil {
 		// Leave state untouched; caller logs and continues.
 		return err
+	}
+	// Edge case: if the service crashed mid-track and restarted after a long
+	// gap, the play is stale. Close it immediately to avoid inflating duration.
+	// (Requires: crash, restart, same track playing — yes, we know.)
+	// Threshold: 1.5x track duration or 60s floor, whichever is larger.
+	// Covers pause + crash scenario.
+	now := time.Now().UTC()
+	threshold := max(time.Duration(dur)*time.Millisecond*3/2, 60*time.Second)
+	if now.Sub(open.PlayedAt) > threshold {
+		return nil // stale play — treat as no open play
 	}
 	s.lastPlay = open
 	s.lastDurationMS = dur
@@ -147,6 +157,7 @@ func (s *runState) step(ctx context.Context, log *slog.Logger, cfg Config, ps *s
 
 	if !playing {
 		if s.phase == phaseActive {
+			// no playback detected in active phase -> update noPlayAt or set to idle if time exceeds IdleAfter
 			if s.noPlayAt.IsZero() {
 				s.noPlayAt = now
 			}
@@ -233,6 +244,8 @@ func (s *runState) recordTrackChange(ctx context.Context, ps *spotify.PlayerStat
 
 func (s *runState) resolveContext(ctx context.Context, c *spotify.Context) (playlistID, snapshotID *string, err error) {
 	if c == nil {
+		// No context — playing from search, queue, or direct URL.
+		// Recorded with playlist_id=NULL, excluded from analysis.
 		return nil, nil, nil
 	}
 	kind, id := spotify.ParseContextURI(c.URI)
@@ -243,13 +256,13 @@ func (s *runState) resolveContext(ctx context.Context, c *spotify.Context) (play
 		if err != nil {
 			return nil, nil, err
 		}
-		if !ok {
+		if !ok { // will happen if playlist wasn't yet synced
 			return &pid, nil, nil
 		}
 		return &pid, &snap, nil
 	case spotify.ContextCollection:
 		// Liked Songs are recorded under a synthetic playlist_id keyed by user.
-		liked := likedPlaylistID(s.account.UserID)
+		liked := LikedPlaylistID(s.account.UserID)
 		snap, ok, err := s.rec.LatestSnapshotID(ctx, s.account.UserID, liked)
 		if err != nil {
 			return nil, nil, err
@@ -266,6 +279,4 @@ func (s *runState) resolveContext(ctx context.Context, c *spotify.Context) (play
 
 // LikedPlaylistID is the synthetic playlist_id used for Liked Songs plays and
 // snapshots. Exported because the playlists syncer also writes under this key.
-func LikedPlaylistID(userID string) string { return likedPlaylistID(userID) }
-
-func likedPlaylistID(userID string) string { return "liked:" + userID }
+func LikedPlaylistID(userID string) string { return "liked:" + userID }

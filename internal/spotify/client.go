@@ -230,7 +230,8 @@ type ContextKind int
 const (
 	ContextUnknown ContextKind = iota
 	ContextPlaylist
-	ContextCollection // Liked Songs: spotify:user:<id>:collection
+	ContextCollection // Liked Songs: spotify:user:<id>:collection — only collection type in Spotify
+	// Docs: https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback#context-object
 	ContextAlbum
 	ContextArtist
 	ContextShow
