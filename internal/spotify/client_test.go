@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package spotify
 
 import (
@@ -7,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -25,13 +23,13 @@ func TestParseContextURI(t *testing.T) {
 		wantID   string
 	}{
 		{"spotify:playlist:abc123", ContextPlaylist, "abc123"},
-		{"spotify:user:kris:collection", ContextCollection, "kris"},
+		{"spotify:user:cartman:collection", ContextCollection, "cartman"},
 		{"spotify:album:xyz", ContextAlbum, "xyz"},
 		{"spotify:artist:art1", ContextArtist, "art1"},
 		{"spotify:show:s1", ContextShow, "s1"},
 		{"", ContextUnknown, ""},
 		{"not-a-uri", ContextUnknown, ""},
-		{"spotify:user:kris", ContextUnknown, ""}, // user without :collection
+		{"spotify:user:cartman", ContextUnknown, ""}, // user without :collection
 	}
 	for _, tc := range cases {
 		k, id := ParseContextURI(tc.uri)
@@ -42,12 +40,13 @@ func TestParseContextURI(t *testing.T) {
 }
 
 func TestGetPlayerState_204(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/me/player" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})
+	srv := httptest.NewServer(handler)
 	defer srv.Close()
 	c := newTestClient(srv)
 	got, err := c.GetPlayerState(context.Background())
@@ -60,17 +59,30 @@ func TestGetPlayerState_204(t *testing.T) {
 }
 
 func TestGetPlayerState_200(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"is_playing": true,
 			"progress_ms": 12345,
 			"shuffle_state": true,
 			"smart_shuffle": false,
-			"context": {"type": "playlist", "uri": "spotify:playlist:p1", "href": "x"},
-			"item": {"id":"t1","name":"T","uri":"spotify:track:t1","duration_ms":200000,"type":"track","artists":[{"id":"a1","name":"A"}],"album":{"id":"al1","name":"AL"}}
+			"context": {
+				"type": "playlist",
+				"uri": "spotify:playlist:p1",
+				"href": "x"
+			},
+			"item": {
+				"id": "t1",
+				"name": "T",
+				"uri": "spotify:track:t1",
+				"duration_ms": 200000,
+				"type": "track",
+				"artists": [{"id": "a1", "name": "A"}],
+				"album": {"id": "al1", "name": "AL"}
+			}
 		}`))
-	}))
+	})
+	srv := httptest.NewServer(handler)
 	defer srv.Close()
 	c := newTestClient(srv)
 	ps, err := c.GetPlayerState(context.Background())
@@ -89,16 +101,17 @@ func TestGetPlayerState_200(t *testing.T) {
 }
 
 func TestGetPlayerState_429RetryAfter(t *testing.T) {
-	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := calls.Add(1)
-		if n == 1 {
+	var calls int
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
 			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})
+	srv := httptest.NewServer(handler)
 	defer srv.Close()
 	c := newTestClient(srv)
 	start := time.Now()
@@ -106,8 +119,8 @@ func TestGetPlayerState_429RetryAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 2 {
-		t.Errorf("calls = %d, want 2", calls.Load())
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2", calls)
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("retry took too long: %v", elapsed)
