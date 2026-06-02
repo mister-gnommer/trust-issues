@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package playback
 
 import (
@@ -56,10 +55,12 @@ func kindFromURI(uri string) string {
 	return ""
 }
 
+// TestStep_idleNoPlaybackStaysIdle: when Spotify returns no active playback (nil),
+// the state machine should remain in idle phase and continue polling at the slower idle interval.
 func TestStep_idleNoPlaybackStaysIdle(t *testing.T) {
 	rec := newRec(t)
 	cfg := Config{}.withDefaults()
-	state := newRunState(rec, Account{UserID: "u1", DisplayName: "Kris"})
+	state := newRunState(rec, Account{UserID: "u1", DisplayName: "Kenny"})
 	now := time.Now().UTC()
 
 	got := state.step(context.Background(), newLogger(), cfg, nil, now)
@@ -74,73 +75,99 @@ func TestStep_idleNoPlaybackStaysIdle(t *testing.T) {
 func TestStep_playbackTransitionsActive_recordsPlay(t *testing.T) {
 	rec := newRec(t)
 	cfg := Config{}.withDefaults()
-	state := newRunState(rec, Account{UserID: "u1", DisplayName: "Kris"})
-	if err := rec.UpsertUser(context.Background(), "u1", "Kris", time.Now().UTC()); err != nil {
+	state := newRunState(rec, Account{UserID: "u1", DisplayName: "Kenny"})
+	if err := rec.UpsertUser(context.Background(), "u1", "Kenny", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC)
 
-	// First track detected.
-	got := state.step(context.Background(), newLogger(), cfg,
-		playerState("t1", "Track One", 200_000, "spotify:playlist:p1", true), now)
-	if got != cfg.ActiveInterval {
-		t.Errorf("interval = %v, want %v", got, cfg.ActiveInterval)
-	}
-	if state.lastPlay == nil || state.lastPlay.TrackID != "t1" {
-		t.Fatalf("lastPlay = %+v", state.lastPlay)
-	}
+	var prevID int64
 
-	// Same track again — nothing new recorded.
-	prevID := state.lastPlay.ID
-	state.step(context.Background(), newLogger(), cfg,
-		playerState("t1", "Track One", 200_000, "spotify:playlist:p1", true), now.Add(5*time.Second))
-	if state.lastPlay.ID != prevID {
-		t.Errorf("lastPlay.ID changed for same track")
-	}
+	t.Run("first track detected", func(t *testing.T) {
+		got := state.step(context.Background(), newLogger(), cfg,
+			playerState("t1", "Track One", 200_000, "spotify:playlist:p1", true), now)
+		if got != cfg.ActiveInterval {
+			t.Errorf("interval = %v, want %v", got, cfg.ActiveInterval)
+		}
+		if state.lastPlay == nil || state.lastPlay.TrackID != "t1" {
+			t.Fatalf("lastPlay = %+v", state.lastPlay)
+		}
+	})
 
-	// New track detected → previous closes, skipped flag computed.
-	state.step(context.Background(), newLogger(), cfg,
-		playerState("t2", "Track Two", 200_000, "spotify:playlist:p1", true), now.Add(10*time.Second))
-	open, err := rec.LastOpenPlay(context.Background(), "u1")
-	if err != nil || open == nil || open.TrackID != "t2" {
-		t.Fatalf("open = %+v err=%v", open, err)
-	}
-	// Verify previous play was closed and marked skipped (10s < 30s threshold).
-	var skipped *bool
-	if err := rec.DB().QueryRow(`SELECT skipped FROM plays WHERE id = ?`, prevID).Scan(&skipped); err != nil {
-		t.Fatal(err)
-	}
-	if skipped == nil || !*skipped {
-		t.Errorf("prev skipped = %v, want true", skipped)
-	}
+	t.Run("same track again — nothing new recorded", func(t *testing.T) {
+		prevID = state.lastPlay.ID
+		state.step(context.Background(), newLogger(), cfg,
+			playerState("t1", "Track One", 200_000, "spotify:playlist:p1", true), now.Add(5*time.Second))
+		if state.lastPlay.ID != prevID {
+			t.Errorf("lastPlay.ID changed for same track")
+		}
+		var playCount int
+		if err := rec.DB().QueryRow(`SELECT COUNT(*) FROM plays WHERE track_id = ?`, "t1").Scan(&playCount); err != nil {
+			t.Fatal(err)
+		}
+		if playCount != 1 {
+			t.Errorf("play count for t1 = %d, want 1", playCount)
+		}
+	})
+
+	t.Run("new track detected → previous closes, skipped flag computed", func(t *testing.T) {
+		state.step(context.Background(), newLogger(), cfg,
+			playerState("t2", "Track Two", 200_000, "spotify:playlist:p1", true), now.Add(10*time.Second))
+		open, err := rec.LastOpenPlay(context.Background(), "u1")
+		if err != nil || open == nil || open.TrackID != "t2" {
+			t.Fatalf("open = %+v err=%v", open, err)
+		}
+		// Verify previous play was closed and marked skipped (10s < 30s threshold).
+		var skipped *bool
+		if err := rec.DB().QueryRow(`SELECT skipped FROM plays WHERE id = ?`, prevID).Scan(&skipped); err != nil {
+			t.Fatal(err)
+		}
+		if skipped == nil || !*skipped {
+			t.Errorf("prev skipped = %v, want true", skipped)
+		}
+	})
+
+	// Long play (90s > 30s threshold) → previous play NOT skipped.
+	t.Run("long play not skipped", func(t *testing.T) {
+		prevID2 := state.lastPlay.ID
+		state.step(context.Background(), newLogger(), cfg,
+			playerState("t3", "Track Three", 200_000, "spotify:playlist:p1", true), now.Add(100*time.Second))
+		var skipped *bool
+		if err := rec.DB().QueryRow(`SELECT skipped FROM plays WHERE id = ?`, prevID2).Scan(&skipped); err != nil {
+			t.Fatal(err)
+		}
+		if skipped == nil || *skipped {
+			t.Errorf("skipped = %v, want false", skipped)
+		}
+	})
 }
 
 func TestStep_grace_thenIdle(t *testing.T) {
 	rec := newRec(t)
 	cfg := Config{}.withDefaults()
-	state := newRunState(rec, Account{UserID: "u1", DisplayName: "Kris"})
-	rec.UpsertUser(context.Background(), "u1", "Kris", time.Now().UTC())
+	state := newRunState(rec, Account{UserID: "u1", DisplayName: "Kenny"})
+	rec.UpsertUser(context.Background(), "u1", "Kenny", time.Now().UTC())
 
 	now := time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC)
 	state.step(context.Background(), newLogger(), cfg,
 		playerState("t1", "T", 200_000, "", true), now)
 
-	// First no-playback tick at +30s — starts the grace counter, still active.
-	got := state.step(context.Background(), newLogger(), cfg, nil, now.Add(30*time.Second))
+	// First no-playback tick starts the grace counter, still active.
+	got := state.step(context.Background(), newLogger(), cfg, nil, now.Add(1*time.Second))
 	if got != cfg.ActiveInterval || state.phase != phaseActive {
-		t.Errorf("first idle tick: interval=%v phase=%v", got, state.phase)
+		t.Errorf("grace start: interval=%v phase=%v", got, state.phase)
 	}
 
-	// 30s into the grace window — still active.
+	// 59s after grace started (< IdleAfter) — still active.
 	got = state.step(context.Background(), newLogger(), cfg, nil, now.Add(60*time.Second))
 	if got != cfg.ActiveInterval || state.phase != phaseActive {
-		t.Errorf("mid grace: interval=%v phase=%v", got, state.phase)
+		t.Errorf("before threshold: interval=%v phase=%v", got, state.phase)
 	}
 
-	// 60s after first no-playback tick — switched to idle.
-	got = state.step(context.Background(), newLogger(), cfg, nil, now.Add(90*time.Second))
+	// 60s after grace started (>= IdleAfter) — switched to idle.
+	got = state.step(context.Background(), newLogger(), cfg, nil, now.Add(61*time.Second))
 	if got != cfg.IdleInterval || state.phase != phaseIdle {
-		t.Errorf("after grace: interval=%v phase=%v", got, state.phase)
+		t.Errorf("at threshold: interval=%v phase=%v", got, state.phase)
 	}
 }
 
