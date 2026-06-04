@@ -239,17 +239,13 @@ func (s *Store) LastOpenPlay(ctx context.Context, userID string) (*Play, error) 
 //
 // prev may be nil — that's the case on first-ever play or after a clean shutdown
 // where the previous play was already closed.
-//
-// Skip threshold (per DESCRIPTION.md A1): a play is "skipped" if it ended in less
-// than max(30s, 25% of duration_ms).
-func (s *Store) CloseAndInsertPlay(ctx context.Context, prev *Play, prevDurationMS int64, prevEndedAt time.Time, next Play) (int64, error) {
+func (s *Store) CloseAndInsertPlay(ctx context.Context, prev *Play, prevEndedAt time.Time, skipped bool, next Play) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 	if prev != nil {
-		skipped := computeSkipped(prev.PlayedAt, prevEndedAt, prevDurationMS)
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE plays SET ended_at = ?, skipped = ?
 			WHERE id = ?
@@ -276,14 +272,4 @@ func (s *Store) CloseAndInsertPlay(ctx context.Context, prev *Play, prevDuration
 		return 0, err
 	}
 	return id, tx.Commit()
-}
-
-func computeSkipped(playedAt, endedAt time.Time, durationMS int64) bool {
-	listenedMS := endedAt.Sub(playedAt).Milliseconds()
-	threshold := durationMS / 4
-	const floorMS int64 = 30_000
-	if threshold < floorMS {
-		threshold = floorMS
-	}
-	return listenedMS < threshold
 }

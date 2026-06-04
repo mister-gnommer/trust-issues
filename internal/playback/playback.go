@@ -25,7 +25,7 @@ type Recorder interface {
 	LatestSnapshotID(ctx context.Context, userID, playlistID string) (string, bool, error)
 	LastOpenPlay(ctx context.Context, userID string) (*store.Play, error)
 	TrackDuration(ctx context.Context, trackID string) (int64, bool, error)
-	CloseAndInsertPlay(ctx context.Context, prev *store.Play, prevDurationMS int64, prevEndedAt time.Time, next store.Play) (int64, error)
+	CloseAndInsertPlay(ctx context.Context, prev *store.Play, prevEndedAt time.Time, skipped bool, next store.Play) (int64, error)
 }
 
 // Account identifies which Spotify account this poller belongs to.
@@ -232,7 +232,11 @@ func (s *runState) recordTrackChange(ctx context.Context, ps *spotify.PlayerStat
 		PlayedAt:              now,
 		ProgressMSAtDetection: ps.ProgressMS,
 	}
-	id, err := s.rec.CloseAndInsertPlay(ctx, s.lastPlay, s.lastDurationMS, now, next)
+	var skipped bool
+	if s.lastPlay != nil {
+		skipped = computeSkipped(s.lastPlay.PlayedAt, now, s.lastDurationMS)
+	}
+	id, err := s.rec.CloseAndInsertPlay(ctx, s.lastPlay, now, skipped, next)
 	if err != nil {
 		return fmt.Errorf("close+insert play: %w", err)
 	}
@@ -280,3 +284,15 @@ func (s *runState) resolveContext(ctx context.Context, c *spotify.Context) (play
 // LikedPlaylistID is the synthetic playlist_id used for Liked Songs plays and
 // snapshots. Exported because the playlists syncer also writes under this key.
 func LikedPlaylistID(userID string) string { return "liked:" + userID }
+
+// computeSkipped returns true if the play ended before the skip threshold.
+// Threshold (per DESCRIPTION.md A1): max(30s, 25% of duration_ms).
+func computeSkipped(playedAt, endedAt time.Time, durationMS int64) bool {
+	listenedMS := endedAt.Sub(playedAt).Milliseconds()
+	threshold := durationMS / 4
+	const floorMS int64 = 30_000
+	if threshold < floorMS {
+		threshold = floorMS
+	}
+	return listenedMS < threshold
+}

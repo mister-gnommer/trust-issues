@@ -133,7 +133,7 @@ func TestPlayLifecycle_skipped(t *testing.T) {
 		PlayedAt:              t0,
 		ProgressMSAtDetection: 0,
 	}
-	id1, err := s.CloseAndInsertPlay(ctx, nil, 0, time.Time{}, first)
+	id1, err := s.CloseAndInsertPlay(ctx, nil, time.Time{}, false, first)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestPlayLifecycle_skipped(t *testing.T) {
 		UserID: "u1", TrackID: "t2", PlaylistID: ptr("p1"), PlaylistSnapshotID: ptr("snap-1"),
 		ShuffleState: true, PlayedAt: t1,
 	}
-	id2, err := s.CloseAndInsertPlay(ctx, open, 240_000, t1, second)
+	id2, err := s.CloseAndInsertPlay(ctx, open, t1, true, second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestPlayLifecycle_skipped(t *testing.T) {
 	}
 	t2 := t1.Add(90 * time.Second)
 	third := Play{UserID: "u1", TrackID: "t3", ShuffleState: true, PlayedAt: t2}
-	if _, err := s.CloseAndInsertPlay(ctx, open2, 60_000, t2, third); err != nil {
+	if _, err := s.CloseAndInsertPlay(ctx, open2, t2, false, third); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.db.QueryRow(`SELECT skipped FROM plays WHERE id = ?`, id2).Scan(&skipped); err != nil {
@@ -184,7 +184,7 @@ func TestPlayLifecycle_skipped(t *testing.T) {
 	open3, _ := s.LastOpenPlay(ctx, "u1")
 	t3 := t2.Add(25 * time.Second)
 	fourth := Play{UserID: "u1", TrackID: "t4", ShuffleState: true, PlayedAt: t3}
-	if _, err := s.CloseAndInsertPlay(ctx, open3, 60_000, t3, fourth); err != nil {
+	if _, err := s.CloseAndInsertPlay(ctx, open3, t3, true, fourth); err != nil {
 		t.Fatal(err)
 	}
 	var thirdSkipped *bool
@@ -193,29 +193,5 @@ func TestPlayLifecycle_skipped(t *testing.T) {
 	}
 	if thirdSkipped == nil || !*thirdSkipped {
 		t.Errorf("third play skipped = %v, want true", thirdSkipped)
-	}
-}
-
-func TestComputeSkipped_thresholds(t *testing.T) {
-	t0 := time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC)
-	cases := []struct {
-		name       string
-		listenedMS int64
-		durationMS int64
-		want       bool
-	}{
-		{"short song, listened 29s — skipped (under 30s floor)", 29_000, 60_000, true},
-		{"short song, listened 30s — kept (meets floor)", 30_000, 60_000, false},
-		{"long song, listened 60s of 240s — kept (60>=60)", 60_000, 240_000, false},
-		{"long song, listened 59s of 240s — skipped (59<60)", 59_000, 240_000, true},
-		{"very long song, listened 60s of 13min — skipped (60<195)", 60_000, 780_000, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := computeSkipped(t0, t0.Add(time.Duration(tc.listenedMS)*time.Millisecond), tc.durationMS)
-			if got != tc.want {
-				t.Errorf("got %v, want %v", got, tc.want)
-			}
-		})
 	}
 }

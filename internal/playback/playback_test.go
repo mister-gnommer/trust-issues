@@ -225,3 +225,27 @@ func deref(p *string) string {
 	}
 	return *p
 }
+
+func TestComputeSkipped_thresholds(t *testing.T) {
+	t0 := time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name       string
+		listenedMS int64
+		durationMS int64
+		want       bool
+	}{
+		{"short song, listened 29s — skipped (under 30s floor)", 29_000, 60_000, true},
+		{"short song, listened 30s — kept (meets floor)", 30_000, 60_000, false},
+		{"long song, listened 60s of 240s — kept (60>=60)", 60_000, 240_000, false},
+		{"long song, listened 59s of 240s — skipped (59<60)", 59_000, 240_000, true},
+		{"very long song, listened 60s of 13min — skipped (60<195)", 60_000, 780_000, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := computeSkipped(t0, t0.Add(time.Duration(tc.listenedMS)*time.Millisecond), tc.durationMS)
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
