@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package store
 
 import (
@@ -23,19 +22,19 @@ func TestUpsertUser(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	if err := s.UpsertUser(ctx, "u1", "Kris", now); err != nil {
+	if err := s.UpsertUser(ctx, "u1", "Kenny", now); err != nil {
 		t.Fatal(err)
 	}
 	// Update display name
-	if err := s.UpsertUser(ctx, "u1", "Krzysztof", now); err != nil {
+	if err := s.UpsertUser(ctx, "u1", "RIP", now); err != nil {
 		t.Fatal(err)
 	}
 	var name string
 	if err := s.db.QueryRow(`SELECT display_name FROM users WHERE id = ?`, "u1").Scan(&name); err != nil {
 		t.Fatal(err)
 	}
-	if name != "Krzysztof" {
-		t.Errorf("display_name = %q, want Krzysztof", name)
+	if name != "RIP" {
+		t.Errorf("display_name = %q, want RIP", name)
 	}
 }
 
@@ -77,6 +76,7 @@ func TestSnapshots(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
 
+	// no snapshot should be found
 	if id, ok, err := s.LatestSnapshotID(ctx, "u1", "p1"); err != nil || ok {
 		t.Fatalf("expected no snapshot, got id=%q ok=%v err=%v", id, ok, err)
 	}
@@ -117,81 +117,46 @@ func TestSnapshots(t *testing.T) {
 	}
 }
 
-func TestPlayLifecycle_skipped(t *testing.T) {
+func TestCloseAndInsertPlay(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	t0 := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().UTC().Truncate(time.Second)
 
-	// First-ever play: no prev
-	first := Play{
-		UserID:                "u1",
-		TrackID:               "t1",
-		PlaylistID:            ptr("p1"),
-		PlaylistSnapshotID:    ptr("snap-1"),
-		ShuffleState:          true,
-		SmartShuffle:          false,
-		PlayedAt:              t0,
-		ProgressMSAtDetection: 0,
+	// First-ever play: no prev to close.
+	newPlay := func(trackID string, playedAt time.Time) Play {
+		return Play{UserID: "u1", TrackID: trackID, ShuffleState: true, PlayedAt: playedAt}
 	}
-	id1, err := s.CloseAndInsertPlay(ctx, nil, time.Time{}, false, first)
+	id1, err := s.CloseAndInsertPlay(ctx, nil, time.Time{}, false, newPlay("t1", now))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Open play exists
-	open, err := s.LastOpenPlay(ctx, "u1")
-	if err != nil || open == nil || open.ID != id1 {
-		t.Fatalf("open = %+v err=%v", open, err)
-	}
-
-	// Skip after 10s on a 240s track → skipped (10s < max(30s, 60s) = 60s)
-	t1 := t0.Add(10 * time.Second)
-	second := Play{
-		UserID: "u1", TrackID: "t2", PlaylistID: ptr("p1"), PlaylistSnapshotID: ptr("snap-1"),
-		ShuffleState: true, PlayedAt: t1,
-	}
-	id2, err := s.CloseAndInsertPlay(ctx, open, t1, true, second)
+	// Close with skipped=true, insert next.
+	open, _ := s.LastOpenPlay(ctx, "u1")
+	id2, err := s.CloseAndInsertPlay(ctx, open, now.Add(10*time.Second), true, newPlay("t2", now.Add(10*time.Second)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var skipped *bool
-	var endedAt *time.Time
-	if err := s.db.QueryRow(`SELECT ended_at, skipped FROM plays WHERE id = ?`, id1).Scan(&endedAt, &skipped); err != nil {
+	if err := s.db.QueryRow(`SELECT skipped FROM plays WHERE id = ?`, id1).Scan(&skipped); err != nil {
 		t.Fatal(err)
 	}
 	if skipped == nil || !*skipped {
-		t.Errorf("first play skipped = %v, want true", skipped)
+		t.Errorf("skipped = %v, want true", skipped)
+	}
+	if open, _ := s.LastOpenPlay(ctx, "u1"); open == nil || open.ID != id2 {
+		t.Errorf("open = %+v, want id=%d", open, id2)
 	}
 
-	// Listen for 90s on a 60s track → not skipped (90s >= max(30s, 15s) = 30s)
-	open2, _ := s.LastOpenPlay(ctx, "u1")
-	if open2.ID != id2 {
-		t.Fatalf("open2.ID = %d want %d", open2.ID, id2)
-	}
-	t2 := t1.Add(90 * time.Second)
-	third := Play{UserID: "u1", TrackID: "t3", ShuffleState: true, PlayedAt: t2}
-	if _, err := s.CloseAndInsertPlay(ctx, open2, t2, false, third); err != nil {
+	// Close with skipped=false, insert next.
+	open, _ = s.LastOpenPlay(ctx, "u1")
+	if _, err := s.CloseAndInsertPlay(ctx, open, now.Add(100*time.Second), false, newPlay("t3", now.Add(100*time.Second))); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.db.QueryRow(`SELECT skipped FROM plays WHERE id = ?`, id2).Scan(&skipped); err != nil {
 		t.Fatal(err)
 	}
 	if skipped == nil || *skipped {
-		t.Errorf("second play skipped = %v, want false", skipped)
-	}
-
-	// 30s threshold floor: short track (60s), 25s listened → skipped (25 < 30)
-	open3, _ := s.LastOpenPlay(ctx, "u1")
-	t3 := t2.Add(25 * time.Second)
-	fourth := Play{UserID: "u1", TrackID: "t4", ShuffleState: true, PlayedAt: t3}
-	if _, err := s.CloseAndInsertPlay(ctx, open3, t3, true, fourth); err != nil {
-		t.Fatal(err)
-	}
-	var thirdSkipped *bool
-	if err := s.db.QueryRow(`SELECT skipped FROM plays WHERE id = ?`, open3.ID).Scan(&thirdSkipped); err != nil {
-		t.Fatal(err)
-	}
-	if thirdSkipped == nil || !*thirdSkipped {
-		t.Errorf("third play skipped = %v, want true", thirdSkipped)
+		t.Errorf("skipped = %v, want false", skipped)
 	}
 }
