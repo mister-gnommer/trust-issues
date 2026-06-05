@@ -1,4 +1,3 @@
--- 🤖 AI-generated
 -- trust-issues schema (multi-account from day one)
 
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -35,7 +34,8 @@ CREATE TABLE IF NOT EXISTS playlist_snapshots (
     user_id       TEXT NOT NULL,
     playlist_id   TEXT NOT NULL,
     playlist_name TEXT NOT NULL,
-    captured_at   DATETIME NOT NULL
+    captured_at   DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_playlist_snapshots_user_playlist
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS playlist_snapshot_tracks (
 
 CREATE TABLE IF NOT EXISTS plays (
     id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id                  TEXT    NOT NULL,
+    user_id                  TEXT    NOT NULL, -- could be grabbed from playlist_snapshot but play is not always associated with a playlist
     track_id                 TEXT    NOT NULL,
     playlist_id              TEXT,
     playlist_snapshot_id     TEXT,
