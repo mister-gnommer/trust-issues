@@ -1,6 +1,3 @@
-// 🤖 AI-generated
-// AGENT: when I start this file review remind me that snapshot id is something spotify provides only for standard playlists
-// for liked we are creating it by our own and it need special attention
 package playlists
 
 import (
@@ -86,7 +83,10 @@ func SyncOnce(ctx context.Context, log *slog.Logger, account Account, src Source
 	if err := syncPlaylists(ctx, log, account, src, rec); err != nil {
 		return err
 	}
-	return syncLiked(ctx, log, account, src, rec)
+	if err := syncLiked(ctx, log, account, src, rec); err != nil {
+		return err
+	}
+	return nil
 }
 
 func syncPlaylists(ctx context.Context, log *slog.Logger, account Account, src Source, rec Recorder) error {
@@ -103,7 +103,12 @@ func syncPlaylists(ctx context.Context, log *slog.Logger, account Account, src S
 		if ok && stored == p.SnapshotID {
 			continue // unchanged
 		}
-		persisted, err := syncPlaylistContents(ctx, account, src, rec, p)
+		tracks, err := src.ListPlaylistItems(ctx, p.ID)
+		if err != nil {
+			log.Warn("list items failed", "playlist_id", p.ID, "err", err)
+			continue
+		}
+		persisted, err := storeTracksAndSnapshot(ctx, rec, tracks, p.SnapshotID, account.UserID, p.ID, p.Name)
 		if err != nil {
 			log.Warn("playlist sync failed", "playlist_id", p.ID, "err", err)
 		} else {
@@ -115,31 +120,6 @@ func syncPlaylists(ctx context.Context, log *slog.Logger, account Account, src S
 		}
 	}
 	return nil
-}
-
-func syncPlaylistContents(ctx context.Context, account Account, src Source, rec Recorder, p spotify.Playlist) (int, error) {
-	tracks, err := src.ListPlaylistItems(ctx, p.ID)
-	if err != nil {
-		return 0, fmt.Errorf("list items: %w", err)
-	}
-	if err := persistTracksAndArtists(ctx, rec, tracks); err != nil {
-		return 0, err
-	}
-	snap := store.Snapshot{
-		ID:           p.SnapshotID,
-		UserID:       account.UserID,
-		PlaylistID:   p.ID,
-		PlaylistName: p.Name,
-		CapturedAt:   time.Now().UTC(),
-	}
-	snapTracks := make([]store.SnapshotTrack, 0, len(tracks))
-	for i, t := range tracks {
-		snapTracks = append(snapTracks, store.SnapshotTrack{TrackID: t.ID, Position: i})
-	}
-	if err := rec.InsertSnapshot(ctx, snap, snapTracks); err != nil {
-		return 0, err
-	}
-	return len(snapTracks), nil
 }
 
 func syncLiked(ctx context.Context, log *slog.Logger, account Account, src Source, rec Recorder) error {
@@ -157,27 +137,39 @@ func syncLiked(ctx context.Context, log *slog.Logger, account Account, src Sourc
 	if ok && stored == syntheticID {
 		return nil
 	}
-	if err := persistTracksAndArtists(ctx, rec, tracks); err != nil {
+	n, err := storeTracksAndSnapshot(ctx, rec, tracks, syntheticID, account.UserID, likedPlaylistID, "Liked Songs")
+	if err != nil {
 		return err
 	}
-	snap := store.Snapshot{
-		ID:           syntheticID,
-		UserID:       account.UserID,
-		PlaylistID:   likedPlaylistID,
-		PlaylistName: "Liked Songs",
-		CapturedAt:   time.Now().UTC(),
+	log.Info("liked songs snapshot stored", "snapshot_id", syntheticID, "tracks", n)
+	return nil
+}
+
+func storeTracksAndSnapshot(ctx context.Context, rec Recorder, tracks []spotify.Track, snapshotID, userID, playlistID, playlistName string) (int, error) {
+	if err := persistTracksAndArtists(ctx, rec, tracks); err != nil {
+		return 0, err
 	}
 	snapTracks := make([]store.SnapshotTrack, 0, len(tracks))
 	for i, t := range tracks {
 		snapTracks = append(snapTracks, store.SnapshotTrack{TrackID: t.ID, Position: i})
 	}
-	if err := rec.InsertSnapshot(ctx, snap, snapTracks); err != nil {
-		return err
+	snap := store.Snapshot{
+		ID:           snapshotID,
+		UserID:       userID,
+		PlaylistID:   playlistID,
+		PlaylistName: playlistName,
+		CapturedAt:   time.Now().UTC(),
 	}
-	log.Info("liked songs snapshot stored", "snapshot_id", syntheticID, "tracks", len(tracks))
-	return nil
+	if err := rec.InsertSnapshot(ctx, snap, snapTracks); err != nil {
+		return 0, err
+	}
+	return len(snapTracks), nil
 }
 
+// persistTracksAndArtists upserts every track and artist from the given list.
+// This re-updates unchanged rows — deliberate: the snapshot ID check in callers
+// already skips playlists that haven't changed, and bulk-upserting in a single
+// transaction is faster than per-row existence checks for typical playlist sizes.
 func persistTracksAndArtists(ctx context.Context, rec Recorder, tracks []spotify.Track) error {
 	artistByID := make(map[string]store.Artist)
 	storeTracks := make([]store.Track, 0, len(tracks))
