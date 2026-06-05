@@ -1,4 +1,3 @@
-// 🤖 AI-generated
 package playlists
 
 import (
@@ -57,59 +56,58 @@ func TestSyncOnce_storesAndSkipsUnchanged(t *testing.T) {
 			{ID: "p2", Name: "Rock", URI: "spotify:playlist:p2", SnapshotID: "snap-B"},
 		},
 		items: map[string][]spotify.Track{
-			"p1": {
-				{ID: "t1", Name: "T1", DurationMS: 200_000, Artists: []spotify.SimpleArtist{{ID: "a1", Name: "A1"}}},
-			},
-			"p2": {
-				{ID: "t2", Name: "T2", DurationMS: 300_000, Artists: []spotify.SimpleArtist{{ID: "a2", Name: "A2"}}},
-			},
+			"p1": {{ID: "t1", Name: "T1", DurationMS: 200_000, Artists: []spotify.SimpleArtist{{ID: "a1", Name: "A1"}}}},
+			"p2": {{ID: "t2", Name: "T2", DurationMS: 300_000, Artists: []spotify.SimpleArtist{{ID: "a2", Name: "A2"}}}},
 		},
 		liked: []spotify.Track{{ID: "t3", Name: "Liked", DurationMS: 250_000, Artists: []spotify.SimpleArtist{{ID: "a3", Name: "A3"}}}},
 	}
 
-	if err := SyncOnce(ctx, log, account, src, rec); err != nil {
-		t.Fatal(err)
-	}
-	if src.itemsCalls != 2 {
-		t.Errorf("itemsCalls = %d, want 2", src.itemsCalls)
-	}
+	t.Run("first pass stores all snapshots", func(t *testing.T) {
+		if err := SyncOnce(ctx, log, account, src, rec); err != nil {
+			t.Fatal(err)
+		}
+		if src.itemsCalls != 2 {
+			t.Errorf("itemsCalls = %d, want 2", src.itemsCalls)
+		}
+		id, ok, _ := rec.LatestSnapshotID(ctx, "u1", "p1")
+		if !ok || id != "snap-A" {
+			t.Errorf("snap p1 = %q ok=%v", id, ok)
+		}
+		likedID, ok, _ := rec.LatestSnapshotID(ctx, "u1", playback.LikedPlaylistID("u1"))
+		if !ok || likedID == "" {
+			t.Errorf("liked snap missing: %q ok=%v", likedID, ok)
+		}
+	})
 
-	id, ok, _ := rec.LatestSnapshotID(ctx, "u1", "p1")
-	if !ok || id != "snap-A" {
-		t.Errorf("snap p1 = %q ok=%v", id, ok)
-	}
-	likedID, ok, _ := rec.LatestSnapshotID(ctx, "u1", playback.LikedPlaylistID("u1"))
-	if !ok || likedID == "" {
-		t.Errorf("liked snap missing: %q ok=%v", likedID, ok)
-	}
+	t.Run("second pass skips unchanged playlists", func(t *testing.T) {
+		src.itemsCalls = 0
+		src.likedCalls = 0
+		if err := SyncOnce(ctx, log, account, src, rec); err != nil {
+			t.Fatal(err)
+		}
+		if src.itemsCalls != 0 {
+			t.Errorf("itemsCalls = %d, want 0", src.itemsCalls)
+		}
+		if src.likedCalls != 1 {
+			t.Errorf("likedCalls = %d, want 1", src.likedCalls)
+		}
+	})
 
-	// Second pass: nothing changed → no playlist items refetched, liked hash stable.
-	src.itemsCalls = 0
-	src.likedCalls = 0
-	if err := SyncOnce(ctx, log, account, src, rec); err != nil {
-		t.Fatal(err)
-	}
-	if src.itemsCalls != 0 {
-		t.Errorf("unchanged: itemsCalls = %d, want 0", src.itemsCalls)
-	}
-	if src.likedCalls != 1 {
-		t.Errorf("liked still listed once per pass: %d", src.likedCalls)
-	}
-
-	// Change p1's snapshot_id → only p1 is refetched.
-	src.playlists[0].SnapshotID = "snap-A2"
-	src.items["p1"] = append(src.items["p1"], spotify.Track{ID: "t1b", Name: "Added", DurationMS: 100_000})
-	src.itemsCalls = 0
-	if err := SyncOnce(ctx, log, account, src, rec); err != nil {
-		t.Fatal(err)
-	}
-	if src.itemsCalls != 1 {
-		t.Errorf("after change: itemsCalls = %d, want 1", src.itemsCalls)
-	}
-	id, _, _ = rec.LatestSnapshotID(ctx, "u1", "p1")
-	if id != "snap-A2" {
-		t.Errorf("p1 snapshot = %q, want snap-A2", id)
-	}
+	t.Run("changed playlist refetched", func(t *testing.T) {
+		src.playlists[0].SnapshotID = "snap-A2"
+		src.items["p1"] = append(src.items["p1"], spotify.Track{ID: "t1b", Name: "Added", DurationMS: 100_000})
+		src.itemsCalls = 0
+		if err := SyncOnce(ctx, log, account, src, rec); err != nil {
+			t.Fatal(err)
+		}
+		if src.itemsCalls != 1 {
+			t.Errorf("itemsCalls = %d, want 1", src.itemsCalls)
+		}
+		id, _, _ := rec.LatestSnapshotID(ctx, "u1", "p1")
+		if id != "snap-A2" {
+			t.Errorf("p1 snapshot = %q, want snap-A2", id)
+		}
+	})
 }
 
 func TestLikedSnapshotID_orderInvariant(t *testing.T) {
