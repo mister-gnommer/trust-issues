@@ -1,0 +1,51 @@
+# trust-issues.service — systemd unit for trust-issues Spotify shuffle monitor
+#
+# Install:
+#   1. Build the binary:  go build ./cmd/trust-issues/
+#   2. Create user & directories:
+#        sudo useradd -r -s /usr/sbin/nologin trust-issues
+#        sudo mkdir -p /opt/trust-issues/reports
+#   3. Copy binary & config:
+#        sudo cp trust-issues /opt/trust-issues/
+#        sudo cp config.toml /opt/trust-issues/
+#        sudo chown -R trust-issues:trust-issues /opt/trust-issues
+#   4. Install unit:
+#        sudo cp deploy/trust-issues.service /etc/systemd/system/
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now trust-issues
+#   5. Check:  sudo journalctl -u trust-issues -f
+
+[Unit]
+Description=trust-issues — Spotify shuffle randomness monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+User=trust-issues
+Group=trust-issues
+
+WorkingDirectory=/opt/trust-issues
+ExecStart=/opt/trust-issues/trust-issues -config /opt/trust-issues/config.toml
+
+# Log to journal (the app writes JSON structured logs to stdout)
+StandardOutput=journal
+StandardError=journal
+
+# Graceful shutdown — SIGTERM triggers ctx cancel, goroutines have 10s deadline
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# Restart on crash or OOM
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
