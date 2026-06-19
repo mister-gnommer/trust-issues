@@ -2,7 +2,7 @@
 
 A Go service that runs permanently on a VPS, silently watches what you're playing on Spotify in shuffle mode, and tells you whether Spotify's shuffle is actually random — or whether it's secretly playing Metallica more than it should.
 
-**Report reproducibility:** If the analysis finds non-random distribution, the report must include enough raw data for anyone holding only the report to independently verify the finding — no access to the database required. Concretely this means: per-track and per-artist play counts, expected counts, chi-squared statistic, degrees of freedom, p-value, and which playlist snapshot the calculation was based on (snapshot ID + track count at that time).
+**Report reproducibility:** If the analysis finds non-random distribution, the report must include enough raw data for anyone holding only the report to independently verify the finding — no access to the database required. The report consists of two files: `reports/YYYYMMDD.md` (scannable summary with top anomalies) and `reports/YYYYMMDD-data.md` (full per-track and per-artist tables appendix). Concretely this means: per-track and per-artist play counts, expected counts, chi-squared statistic, degrees of freedom, p-value, and which playlist snapshot the calculation was based on (snapshot ID + track count at that time).
 
 ---
 
@@ -187,7 +187,7 @@ CREATE TABLE plays (
 | A3 | Non-shuffle plays | Record all, `shuffle_state` stored, analysis filters as needed |
 | A4 | Which playlists to sync | All playlists (~100 playlists / ~2000 songs — trivial for SQLite) |
 | A5 | Liked Songs handling | `type: "collection"`, synced via `GET /me/tracks`, one extra branch in context parser |
-| A6 | Results interface | Daily markdown report written to `reports/YYYYMMDD.md`, old ones kept |
+| A6 | Results interface | Daily markdown report written to `reports/YYYYMMDD.md` (summary) + `reports/YYYYMMDD-data.md` (full tables appendix), old ones kept |
 | A7 | OAuth on VPS | Manual token: OAuth flow on laptop, paste refresh token into config |
 | A8 | Database | SQLite |
 | A9 | Historical snapshot accuracy | Snapshot at time of play — historical accuracy maintained |
@@ -284,7 +284,7 @@ Access tokens expire after 1 hour — the app handles renewal automatically.
 | Config | TOML file | List of accounts (user_id + refresh_token), app credentials |
 | Deployment | `systemd` unit | Restarts on crash, standard on Linux |
 | Stats | Chi-squared test (pure Go) | Well-understood, no external dependency |
-| Reports | Markdown files in `reports/` | `reports/YYYYMMDD.md`, one per day, never deleted |
+| Reports | Markdown files in `reports/` | `reports/YYYYMMDD.md` (summary) + `reports/YYYYMMDD-data.md` (full tables), one pair per day, never deleted |
 
 ---
 
