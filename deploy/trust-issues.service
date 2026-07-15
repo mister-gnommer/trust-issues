@@ -1,12 +1,13 @@
 # trust-issues.service — systemd unit for trust-issues Spotify shuffle monitor
 #
 # Install:
-#   1. Build the binary:  go build ./cmd/trust-issues/
+#   1. Build the binaries: go build ./cmd/trust-issues-poller/ ./cmd/trust-issues-report/
 #   2. Create user & directories:
 #        sudo useradd -r -s /usr/sbin/nologin trust-issues
 #        sudo mkdir -p /opt/trust-issues/reports
-#   3. Copy binary & config:
-#        sudo cp trust-issues /opt/trust-issues/
+#   3. Copy binaries & config:
+#        sudo cp trust-issues-poller /opt/trust-issues/
+#        sudo cp trust-issues-report /opt/trust-issues/
 #        sudo cp config.toml /opt/trust-issues/
 #        sudo chown -R trust-issues:trust-issues /opt/trust-issues
 #   4. Install unit:
@@ -27,7 +28,7 @@ User=trust-issues
 Group=trust-issues
 
 WorkingDirectory=/opt/trust-issues
-ExecStart=/opt/trust-issues/trust-issues -config /opt/trust-issues/config.toml
+ExecStart=/opt/trust-issues/trust-issues-poller -config /opt/trust-issues/config.toml
 
 # Log to journal (the app writes JSON structured logs to stdout)
 StandardOutput=journal

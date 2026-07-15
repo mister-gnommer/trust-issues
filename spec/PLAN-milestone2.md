@@ -1,5 +1,3 @@
-> 🤖 AI-generated
-
 # Milestone 2 — Implementation Plan
 
 Scope (from `TODO.md` and `DESCRIPTION.md`):
@@ -426,7 +424,6 @@ Keep `defer st.Close()`. Sequential loop over accounts is fine for read-only one
 
 **`trust-issues-report.service`:**
 ```ini
-# 🤖 AI-generated
 # Install: same steps as trust-issues.service, plus:
 #   sudo cp deploy/trust-issues-report.service /etc/systemd/system/
 #   sudo cp deploy/trust-issues-report.timer /etc/systemd/system/
@@ -467,7 +464,6 @@ Note: `ProtectSystem=full` makes `/usr`, `/boot`, `/etc` read-only — does NOT 
 
 **`trust-issues-report.timer`:**
 ```ini
-# 🤖 AI-generated
 
 [Unit]
 Description=Daily trust-issues report generation
@@ -568,33 +564,6 @@ After: `go vet ./...` and `go test ./...` clean. Build: `go build ./cmd/trust-is
 6. Config + `config.example.toml` + `main.go` `--report-once` wiring (`runReportOnce` extraction, `Europe/Warsaw` location).
 7. Invoke context7-mcp for systemd timer syntax (OnCalendar, Persistent, Timezone=, Type=oneshot), then `deploy/trust-issues-report.service` + `.timer`.
 8. Update `TODO.md` (check off chi-squared/daily-report/cron/systemd-unit; add deferred items: Bonferroni for global test, FDR for residual flags, streaming analysis, skipped-filter knob, hot reload, same-day suffixes) + `README.md` (Milestone 2 ✅, add `analysis/`+`report/` to project structure, add `[reports]` config section, DST note, cron fallback, Europe/Warsaw timezone note).
-
----
-
-## Commit plan
-
-Nine commits. Each compiles and passes `go vet ./...` + `go test ./...` in isolation (atomic revert boundary — see §Rollback). Order follows §Suggested build order, with step 6 split into two commits so the config schema and the binary behavior change are reviewable separately.
-
-Subject lines match the existing repo style: short, imperative, no `feat:`/`fix:` prefix, no body required for small commits.
-
-| # | Subject | Files | Deps on prior # | Why atomic |
-|---|---|---|---|---|
-| 1 | Add chi-squared math package | `internal/analysis/chisq.go`, `internal/analysis/chisq_test.go` | — | Pure math, zero deps outside stdlib. `analysis` package gains functions but no caller yet — compiles, tests pass. Fastest feedback per build-order step 1. |
-| 2 | Add analysis result types and SnapshotInfo | `internal/analysis/types.go`, `internal/store/types.go` | 1 | Type declarations only, no logic, no new tests (covered implicitly by later callers). Both packages compile; existing tests unaffected. Groups the two type-only additions from build-order step 2. |
-| 3 | Add store query methods for analysis Reader | `internal/store/store.go`, `internal/store/store_test.go` | 2 | `SnapshotInfo` (commit 2) is the return type. Each of the 6 methods is plain SQL against existing tables — no schema change. `*store.Store` now satisfies `analysis.Reader` but nobody calls it as such yet. |
-| 4 | Add Analyzer | `internal/analysis/analysis.go`, `internal/analysis/analysis_test.go` | 1, 2, 3 | `Reader` interface + `Analyze` wire chisq + types + store methods. Tests use a fake `Reader` (no DB). `analysis` package is now complete and self-tested. |
-| 5 | Add markdown report renderer | `internal/report/report.go`, `internal/report/report_test.go`, `internal/report/testdata/*.golden.md` | 2 | `report` depends only on `analysis.Result` types (commit 2), not on `Analyze`. Pure render functions + `WriteAll`; golden-file tests cover output. Could precede commit 4, but kept in build order for narrative. |
-| 6 | Add reports config block | `internal/config/config.go`, `internal/config/config_test.go`, `config.example.toml` | — | New `Reports` struct + `LoadForReport`/`validateForReport` split + defaults. `LoadForReport` is unused until commit 7 — fine (no dead-code lint in Go by default). Config tests cover both modes. No change to binary behavior. |
-| 7 | Wire `--report-once` flag in main | `cmd/trust-issues/main.go`, `cmd/trust-issues/main_test.go` | 4, 5, 6 | Extracts `runReportOnce`/`runPollers`, dispatches on the flag, calls `LoadForReport` (commit 6) + `analysis.Analyze` (commit 4) + `report.WriteAll` (commit 5). Integration tests use `:memory:` store. This is the only commit that changes runtime behavior. |
-| 8 | Add systemd timer for daily reports | `deploy/trust-issues-report.service`, `deploy/trust-issues-report.timer` | 7 | Units reference the binary flag added in commit 7. No Go code, no tests. context7-mcp consulted first per build-order step 7. Harmless if merged before the timer is `systemctl enable`d. |
-| 9 | Update TODO and README for Milestone 2 | `TODO.md`, `README.md` | 1–8 | Docs only. References the new packages, config block, systemd units, and deferred items. Last so it describes the merged state. |
-
-**Notes on the split of build-order step 6:**
-
-- The plan's step 6 bundles config + `main.go` wiring. Splitting them (commits 6 + 7) keeps each diff small and lets a reviewer judge the config schema independently from the `main.go` control-flow change. Merging them is acceptable if the reviewer prefers fewer commits; both remain atomic because commit 6 alone compiles and passes tests.
-- The reverse order (main.go before config) is **not** atomic — `runReportOnce` references `cfg.Reports.MinPlays` and `LoadForReport`, so commit 7 cannot precede commit 6.
-
-**Cross-commit invariant:** `go build ./cmd/trust-issues/` must succeed after every commit. The riskiest boundary is 7→8: commit 7 changes the binary but adds no scheduler, so the report path is only reachable via manual `--report-once`. Commit 8 makes it scheduled. If a bisect lands between 7 and 8, the bug is either in the binary's report path (commit 7) or the unit definitions (commit 8) — cleanly separable.
 
 ---
 

@@ -1,4 +1,6 @@
 # Build output
+/trust-issues-poller
+/trust-issues-report
 /trust-issues
 /dist/
 

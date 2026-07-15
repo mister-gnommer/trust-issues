@@ -1,0 +1,35 @@
+# Install: same steps as trust-issues.service, plus:
+#   sudo cp deploy/trust-issues-report.service /etc/systemd/system/
+#   sudo cp deploy/trust-issues-report.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now trust-issues-report.timer
+#   Check:  sudo systemctl list-timers trust-issues-report
+#   Logs:   sudo journalctl -u trust-issues-report.service
+
+[Unit]
+Description=trust-issues — daily shuffle randomness report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=trust-issues
+Group=trust-issues
+WorkingDirectory=/opt/trust-issues
+ExecStart=/opt/trust-issues/trust-issues-report -config /opt/trust-issues/config.toml
+
+StandardOutput=journal
+StandardError=journal
+
+# No Restart= — oneshot re-runs are timer-owned, not service-owned
+TimeoutStartSec=600
+
+# Security hardening — systemd does NOT inherit security directives between units,
+# so each unit must specify its own. Copy these verbatim to new units.
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

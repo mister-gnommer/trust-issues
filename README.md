@@ -22,10 +22,10 @@ This project is AI-generated and used as a learning exercise for a TypeScript de
 - Playlist syncing (including Liked Songs)
 - SQLite storage with historical snapshots
 
-**Milestone 2 🚧** — Analysis (deferred):
-- Chi-squared goodness-of-fit test (per-track and per-artist)
-- Daily markdown reports to `reports/YYYYMMDD.md`
-- Scheduled cron trigger
+**Milestone 2 ✅** — Analysis & reporting:
+- Chi-squared goodness-of-fit test (per-track, per-artist, Cramér's V effect size, standardized residuals)
+- Daily markdown reports to `reports/YYYYMMDD.md` (summary) + `reports/YYYYMMDD-data.md` (full tables)
+- Systemd-timer scheduling (daily at 03:00 Europe/Warsaw, `deploy/trust-issues-report.timer`)
 
 ## How it works
 
@@ -50,7 +50,8 @@ This project is AI-generated and used as a learning exercise for a TypeScript de
 │                   │   per-artist)    │                    │
 │                   └──────────────────┘                    │
 │                            │                              │
-│                   daily cron → reports/YYYYMMDD.md        │
+│              systemd timer → reports/YYYYMMDD.md           │
+│              03:00 Europe/Warsaw                           │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -83,14 +84,17 @@ Docs: https://developer.spotify.com/documentation/web-api/reference/get-playlist
 
 ```bash
 # Build
-go build ./cmd/trust-issues/
+go build ./cmd/trust-issues-poller/ ./cmd/trust-issues-report/
 
 # Create config (see config.example.toml)
 cp config.example.toml config.toml
 # Edit with your Spotify credentials and refresh token
 
-# Run
-./trust-issues -config config.toml
+# Run the poller (continuous polling + syncing)
+./trust-issues-poller -config config.toml
+
+# Generate a one-shot report and exit (no Spotify API calls)
+./trust-issues-report -config config.toml
 ```
 
 ## Configuration
@@ -103,6 +107,11 @@ client_secret = "your_spotify_client_secret"
 [storage]
 database_path = "./trust.db"
 
+[reports]
+dir                = "./reports"   # report output directory
+min_plays          = 30            # skip chi-squared if M < this
+residual_threshold = 3             # flag track/artist if |residual| > this
+
 [[accounts]]
 user_id       = "spotify_user_id"
 display_name  = "Kris"
@@ -111,24 +120,70 @@ refresh_token = "AQD..."
 
 See [`config.example.toml`](config.example.toml) for the full example.
 
+### Report-only mode
+
+The report binary (`trust-issues-report`) runs analysis, writes reports, and exits — no Spotify API calls.
+This is the entry point for the daily systemd timer:
+
+```bash
+./trust-issues-report -config config.toml
+```
+
+Config validation in report-only mode skips `client_id`/`client_secret`/`refresh_token` checks.
+All times in the report use `Europe/Warsaw` timezone (CET/CEST with automatic DST).
+
+### Scheduling
+
+Daily report generation at 03:00 `Europe/Warsaw` via systemd timer:
+
+```bash
+sudo systemctl enable --now trust-issues-report.timer
+```
+
+**Cron fallback** (non-systemd boxes):
+```
+0 3 * * * /opt/trust-issues/trust-issues-report -config /opt/trust-issues/config.toml
+```
+
+**DST note:** during daylight-saving transitions the timer may shift by an hour or fire twice; harmless for daily reports. If the VPS was off for N days, `Persistent=true` fires once on boot producing one cumulative report — not N backfill reports.
+
 ## Adding accounts
 
 1. Obtain a refresh token via OAuth flow (see [DESCRIPTION.md](DESCRIPTION.md#A7))
 2. Add a new `[[accounts]]` block to `config.toml`
-3. Restart the service (hot reload planned for Milestone 2)
+3. Restart the service
 
 ## Project structure
 
 ```
-cmd/trust-issues/     # Entry point
+cmd/trust-issues-poller/  # Poller daemon entry point
+cmd/trust-issues-report/  # Report generation entry point
 internal/
+  analysis/           # Chi-squared math + analysis engine
   config/             # TOML config parsing
+  report/             # Markdown report renderer + atomic writer
   spotify/            # Spotify Web API client
   store/              # SQLite layer
   playback/           # Poller goroutine
   playlists/          # Playlist syncer goroutine
+deploy/
+  trust-issues.service           # Poller + syncer daemon
+  trust-issues-report.service    # Oneshot report generation
+  trust-issues-report.timer      # Daily 03:00 Europe/Warsaw schedule
 ```
 
 ## License
 
 MIT
+
+## Architectural decisions
+
+### One query per logical read, no mega-joins
+
+The analysis engine issues several small SQL queries per snapshot (track IDs, observed play counts per track, artist track counts, observed play counts per artist) rather than one large join that returns all data at once. This is intentional:
+
+- SQLite is a local file — no network roundtrip, so each query is microseconds. 4 queries × 100 snapshots ≈ a few hundred ms, negligible for a daily cron job at 03:00.
+- Each query maps to one clear concept and is unit-tested in isolation. A mega-query joining snapshots + tracks + track_artists + plays would return a denormalized row explosion that would have to be re-aggregated in Go, and would be hard to read and test.
+- Name lookups (`TrackNames`/`ArtistNames`) are already batched at 900 IDs per query, so they're 2 queries total — not N+1.
+
+If the DB ever moves to Postgres over a network, or snapshot count grows into the thousands, revisit then.
