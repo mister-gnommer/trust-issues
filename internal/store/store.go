@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -272,4 +273,259 @@ func (s *Store) CloseAndInsertPlay(ctx context.Context, prev *Play, prevEndedAt 
 		return 0, err
 	}
 	return id, tx.Commit()
+}
+
+// SnapshotsWithShufflePlays returns snapshots that have at least one shuffle play
+// with non-null context for the given user, ordered by captured_at desc.
+func (s *Store) SnapshotsWithShufflePlays(ctx context.Context, userID string) ([]Snapshot, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ps.id, ps.user_id, ps.playlist_id, ps.playlist_name, ps.captured_at
+		FROM playlist_snapshots ps
+		WHERE ps.user_id = ?
+		  AND EXISTS (
+		      SELECT 1 FROM plays p
+		      WHERE p.playlist_snapshot_id = ps.id
+		        AND p.shuffle_state = 1
+		        AND p.playlist_id IS NOT NULL
+		  )
+		ORDER BY ps.captured_at DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("snapshots with shuffle plays: %w", err)
+	}
+	defer rows.Close()
+
+	var snaps []Snapshot
+	for rows.Next() {
+		var snap Snapshot
+		if err := rows.Scan(&snap.ID, &snap.UserID, &snap.PlaylistID, &snap.PlaylistName, &snap.CapturedAt); err != nil {
+			return nil, fmt.Errorf("scan snapshot: %w", err)
+		}
+		snaps = append(snaps, snap)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+	return snaps, nil
+}
+
+// SnapshotTrackIDs returns the track IDs in a snapshot, ordered by position.
+// The second return value is the count (len(ids)).
+func (s *Store) SnapshotTrackIDs(ctx context.Context, snapshotID string) ([]string, int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT track_id
+		FROM playlist_snapshot_tracks
+		WHERE snapshot_id = ?
+		ORDER BY position
+	`, snapshotID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("snapshot track IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, 0, fmt.Errorf("scan track ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("rows iteration: %w", err)
+	}
+	return ids, len(ids), nil
+}
+
+// ArtistTrackCounts returns K (number of tracks per artist) for all artists
+// in a snapshot. Collaborative tracks are counted once per artist.
+func (s *Store) ArtistTrackCounts(ctx context.Context, snapshotID string) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ta.artist_id, COUNT(*) AS k
+		FROM playlist_snapshot_tracks pst
+		INNER JOIN track_artists ta ON ta.track_id = pst.track_id
+		WHERE pst.snapshot_id = ?
+		GROUP BY ta.artist_id
+	`, snapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("artist track counts: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var artistID string
+		var k int
+		if err := rows.Scan(&artistID, &k); err != nil {
+			return nil, fmt.Errorf("scan artist count: %w", err)
+		}
+		counts[artistID] = k
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+	return counts, nil
+}
+
+// PlayCountsByTrack returns observed shuffle play counts per track for a given
+// user+snapshot. Orphan plays (track_id not in the snapshot) are dropped by
+// the INNER JOIN against playlist_snapshot_tracks.
+func (s *Store) PlayCountsByTrack(ctx context.Context, userID, snapshotID string) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT p.track_id, COUNT(*) AS cnt
+		FROM plays p
+		INNER JOIN playlist_snapshot_tracks pst
+		    ON pst.track_id = p.track_id AND pst.snapshot_id = p.playlist_snapshot_id
+		WHERE p.user_id = ?
+		  AND p.playlist_snapshot_id = ?
+		  AND p.shuffle_state = 1
+		  AND p.playlist_id IS NOT NULL
+		GROUP BY p.track_id
+	`, userID, snapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("play counts by track: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var trackID string
+		var n int
+		if err := rows.Scan(&trackID, &n); err != nil {
+			return nil, fmt.Errorf("scan play count: %w", err)
+		}
+		counts[trackID] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+	return counts, nil
+}
+
+// PlayCountsByArtist returns observed shuffle play counts per artist for a given
+// user+snapshot. Collaborative tracks contribute +1 to each artist.
+// Orphan plays are dropped by the INNER JOIN against playlist_snapshot_tracks.
+func (s *Store) PlayCountsByArtist(ctx context.Context, userID, snapshotID string) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ta.artist_id, COUNT(*) AS cnt
+		FROM plays p
+		INNER JOIN playlist_snapshot_tracks pst
+		    ON pst.track_id = p.track_id AND pst.snapshot_id = p.playlist_snapshot_id
+		INNER JOIN track_artists ta ON ta.track_id = pst.track_id
+		WHERE p.user_id = ?
+		  AND p.playlist_snapshot_id = ?
+		  AND p.shuffle_state = 1
+		  AND p.playlist_id IS NOT NULL
+		GROUP BY ta.artist_id
+	`, userID, snapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("play counts by artist: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var artistID string
+		var n int
+		if err := rows.Scan(&artistID, &n); err != nil {
+			return nil, fmt.Errorf("scan artist count: %w", err)
+		}
+		counts[artistID] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+	return counts, nil
+}
+
+const batchSize = 900
+
+// TrackNames resolves a batch of track IDs to their display names.
+// Batches queries in groups of batchSize to avoid SQLite's
+// SQLITE_MAX_VARIABLE_NUMBER limit.
+func (s *Store) TrackNames(ctx context.Context, trackIDs []string) (map[string]string, error) {
+	if len(trackIDs) == 0 {
+		return map[string]string{}, nil
+	}
+	names := make(map[string]string, len(trackIDs))
+	for i := 0; i < len(trackIDs); i += batchSize {
+		end := min(i+batchSize, len(trackIDs))
+		batch := trackIDs[i:end]
+
+		// convert signatures from string to any for the query:
+		args := make([]any, len(batch))
+		for j, id := range batch {
+			args[j] = id
+		}
+
+		// generate query string with "?" placeholders for each argument in args/batch:
+		query := "SELECT id, name FROM tracks WHERE id IN (" + strings.Repeat("?,", len(batch))[:len(batch)*2-1] + ")"
+
+		if err := func() error {
+			rows, err := s.db.QueryContext(ctx, query, args...)
+			if err != nil {
+				return fmt.Errorf("track names batch %d-%d: %w", i, end, err)
+			}
+			defer rows.Close()
+
+			for rows.Next() {
+				var id, name string
+				if err := rows.Scan(&id, &name); err != nil {
+					return fmt.Errorf("track names batch %d-%d scan: %w", i, end, err)
+				}
+				names[id] = name
+			}
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("track names batch %d-%d rows: %w", i, end, err)
+			}
+			return nil
+		}(); err != nil {
+			return nil, err
+		}
+	}
+	return names, nil
+}
+
+// ArtistNames resolves a batch of artist IDs to their display names.
+// Batches queries in groups of batchSize to avoid SQLite's
+// SQLITE_MAX_VARIABLE_NUMBER limit.
+func (s *Store) ArtistNames(ctx context.Context, artistIDs []string) (map[string]string, error) {
+	if len(artistIDs) == 0 {
+		return map[string]string{}, nil
+	}
+	names := make(map[string]string, len(artistIDs))
+	for i := 0; i < len(artistIDs); i += batchSize {
+		end := min(i+batchSize, len(artistIDs))
+		batch := artistIDs[i:end]
+
+		args := make([]any, len(batch))
+		for j, id := range batch {
+			args[j] = id
+		}
+
+		query := "SELECT id, name FROM artists WHERE id IN (" + strings.Repeat("?,", len(batch))[:len(batch)*2-1] + ")"
+
+		if err := func() error {
+			rows, err := s.db.QueryContext(ctx, query, args...)
+			if err != nil {
+				return fmt.Errorf("artist names batch %d-%d: %w", i, end, err)
+			}
+			defer rows.Close()
+
+			for rows.Next() {
+				var id, name string
+				if err := rows.Scan(&id, &name); err != nil {
+					return fmt.Errorf("artist names batch %d-%d scan: %w", i, end, err)
+				}
+				names[id] = name
+			}
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("artist names batch %d-%d rows: %w", i, end, err)
+			}
+			return nil
+		}(); err != nil {
+			return nil, err
+		}
+	}
+	return names, nil
 }
