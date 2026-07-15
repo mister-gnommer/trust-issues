@@ -1,0 +1,14 @@
+
+[Unit]
+Description=Daily trust-issues report generation
+Requires=trust-issues-report.service
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Timezone=Europe/Warsaw
+# Persistent=true: if the system was off at 03:00, fire immediately on boot
+Persistent=true
+Unit=trust-issues-report.service
+
+[Install]
+WantedBy=timers.target

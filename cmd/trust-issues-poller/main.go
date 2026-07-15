@@ -39,13 +39,13 @@ func run() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	st, err := store.New(ctx, cfg.Storage.DatabasePath)
 	if err != nil {
@@ -55,13 +55,13 @@ func run() error {
 
 	logger.Info("starting", "accounts", len(cfg.Accounts), "db", cfg.Storage.DatabasePath)
 
+	return runPollers(ctx, logger, cfg, st)
+}
+
+func runPollers(ctx context.Context, logger *slog.Logger, cfg *config.Config, st *store.Store) error {
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, account := range cfg.Accounts {
 		client := spotify.NewClient(egCtx, cfg.App.ClientID, cfg.App.ClientSecret, account.RefreshToken)
-		// Duplicated Account structs below (playback.Account vs playlists.Account)
-		// is intentional — each package owns its own types at its boundary.
-		// Sharing a common type would create an import dependency between them.
-		// human comm: I don't yet know if above is true :shrug:
 		pbAcct := playback.Account{UserID: account.UserID, DisplayName: account.DisplayName}
 		plAcct := playlists.Account{UserID: account.UserID, DisplayName: account.DisplayName}
 
@@ -73,9 +73,6 @@ func run() error {
 		})
 	}
 
-	// Watch for shutdown: once ctx is canceled, give goroutines a bounded
-	// window to wind down. If they don't, force-exit so a wedged HTTP
-	// connection or DB lock can't keep the process alive forever.
 	go func() {
 		<-ctx.Done()
 		time.AfterFunc(shutdownDeadline, func() {
@@ -84,7 +81,7 @@ func run() error {
 		})
 	}()
 
-	err = eg.Wait()
+	err := eg.Wait()
 	if errors.Is(err, context.Canceled) {
 		logger.Info("shutdown")
 		return nil

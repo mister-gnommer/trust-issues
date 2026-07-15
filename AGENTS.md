@@ -32,7 +32,7 @@ Common TS→Go traps to flag:
 
 After making code changes, run `go vet ./...` and `go test ./...`. If either fails, fix before proceeding.
 
-Build: `go build ./cmd/trust-issues/`
+Build: `go build ./cmd/trust-issues-poller/ ./cmd/trust-issues-report/`
 
 ---
 
