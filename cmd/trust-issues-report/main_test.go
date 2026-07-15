@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mister-gnommer/trust-issues/internal/config"
-	"github.com/mister-gnommer/trust-issues/internal/store"
+	"github.com/mister-gnommer/trust-issues/v2/internal/config"
+	"github.com/mister-gnommer/trust-issues/v2/internal/store"
 )
 
 func newTestStore(t *testing.T) *store.Store {

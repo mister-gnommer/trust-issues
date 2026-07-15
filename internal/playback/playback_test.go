@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mister-gnommer/trust-issues/internal/spotify"
-	"github.com/mister-gnommer/trust-issues/internal/store"
+	"github.com/mister-gnommer/trust-issues/v2/internal/spotify"
+	"github.com/mister-gnommer/trust-issues/v2/internal/store"
 )
 
 func newRec(t *testing.T) *store.Store {

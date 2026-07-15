@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mister-gnommer/trust-issues/internal/analysis"
-	"github.com/mister-gnommer/trust-issues/internal/store"
+	"github.com/mister-gnommer/trust-issues/v2/internal/analysis"
+	"github.com/mister-gnommer/trust-issues/v2/internal/store"
 )
 
 func newTestStore(t *testing.T) *store.Store {

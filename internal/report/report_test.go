@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mister-gnommer/trust-issues/internal/analysis"
-	"github.com/mister-gnommer/trust-issues/internal/report"
+	"github.com/mister-gnommer/trust-issues/v2/internal/analysis"
+	"github.com/mister-gnommer/trust-issues/v2/internal/report"
 )
 
 var update = flag.Bool("update", false, "update golden files")

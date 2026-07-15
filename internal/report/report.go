@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mister-gnommer/trust-issues/internal/analysis"
+	"github.com/mister-gnommer/trust-issues/v2/internal/analysis"
 )
 
 type accountGroup struct {

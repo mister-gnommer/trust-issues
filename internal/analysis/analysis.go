@@ -6,7 +6,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/mister-gnommer/trust-issues/internal/store"
+	"github.com/mister-gnommer/trust-issues/v2/internal/store"
 )
 
 // Reader is the subset of *store.Store used by the analyzer.

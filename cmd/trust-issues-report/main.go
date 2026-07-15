@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/mister-gnommer/trust-issues/internal/analysis"
-	"github.com/mister-gnommer/trust-issues/internal/config"
-	"github.com/mister-gnommer/trust-issues/internal/report"
-	"github.com/mister-gnommer/trust-issues/internal/store"
+	"github.com/mister-gnommer/trust-issues/v2/internal/analysis"
+	"github.com/mister-gnommer/trust-issues/v2/internal/config"
+	"github.com/mister-gnommer/trust-issues/v2/internal/report"
+	"github.com/mister-gnommer/trust-issues/v2/internal/store"
 )
 
 func main() {

@@ -13,11 +13,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/mister-gnommer/trust-issues/internal/config"
-	"github.com/mister-gnommer/trust-issues/internal/playback"
-	"github.com/mister-gnommer/trust-issues/internal/playlists"
-	"github.com/mister-gnommer/trust-issues/internal/spotify"
-	"github.com/mister-gnommer/trust-issues/internal/store"
+	"github.com/mister-gnommer/trust-issues/v2/internal/config"
+	"github.com/mister-gnommer/trust-issues/v2/internal/playback"
+	"github.com/mister-gnommer/trust-issues/v2/internal/playlists"
+	"github.com/mister-gnommer/trust-issues/v2/internal/spotify"
+	"github.com/mister-gnommer/trust-issues/v2/internal/store"
 )
 
 // shutdownDeadline is the hard cap on how long we wait for goroutines after

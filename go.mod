@@ -1,4 +1,4 @@
-module github.com/mister-gnommer/trust-issues
+module github.com/mister-gnommer/trust-issues/v2
 
 go 1.25.9
 
