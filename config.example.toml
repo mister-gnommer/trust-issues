@@ -25,3 +25,8 @@ refresh_token = "AQD..."
 # user_id       = "spotify_user_id_2"
 # display_name  = "Friend"
 # refresh_token = "AQD..."
+
+[reports]
+dir                = "./reports"   # default
+min_plays          = 30            # skip chi-squared if M < this (D8)
+residual_threshold = 3             # flag track/artist if |residual| > this (D15)
